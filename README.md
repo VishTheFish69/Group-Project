@@ -1,0 +1,15 @@
+🎮 Game Features
+- 3D Flappy Bird gameplay
+- Pipe obstacles with randomized gaps
+- Four difficulty modes:
+  - **Easy** – slow pipes, large gap
+  - **Normal** – standard gameplay
+  - **Hard** – fast pipes, smaller gap
+  - **Special** – very fast pipes + moving spike obstacles
+- Gravity-based bird physics
+- Keyboard + mouse + touch controls
+- Score tracking and Game Over screen
+- Auto-animated environment (required for groups of 3)
+- Two rendering modes:
+  - **Prototype Mode** – primitive geometries only  
+  - **Full Mode** – textures + optional 3D bird model  
