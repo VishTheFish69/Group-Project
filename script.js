@@ -11,9 +11,9 @@ let spikes = [];
 let gravity = -9.8;
 let velocity = 0;
 let pipeSpeed = 2;
-let pipeGap = 1.2;
+let pipeGap = 1;
 let obstacleEnabled = false;
-let running = true;
+let running = false;
 let score = 0;
 
 const NUM_PIPES = 6;
@@ -21,12 +21,31 @@ const PIPE_SPACING = 3;
 const PIPE_START_X = 6;
 const PIPE_RECYCLE_X = -5;
 const PIPE_RESET_X = 12;
+const PIPE_HEIGHT = 2.2;  
+const GAP_MULTIPLIER = 2.2;
+const PIPE_Y_OFFSET = 1.2;
 
 // UI references
 const scoreText = document.getElementById("score");
 const messageText = document.getElementById("message");
 const difficultySelect = document.getElementById("difficulty");
 const modeSwitch = document.getElementById("modeSwitch");
+const startBtn = document.getElementById("startBtn");
+const restartBtn = document.getElementById("restartBtn");
+const highScoreText = document.getElementById("highScore");
+
+// ----------------------------------------------------
+// HIGH SCORES PER DIFFICULTY
+// ----------------------------------------------------
+let highScores = {
+  easy: Number(localStorage.getItem("flappyHigh_easy")) || 0,
+  normal: Number(localStorage.getItem("flappyHigh_normal")) || 0,
+  hard: Number(localStorage.getItem("flappyHigh_hard")) || 0,
+  special: Number(localStorage.getItem("flappyHigh_special")) || 0
+};
+
+let currentDifficulty = "normal";
+highScoreText.textContent = `Best (${currentDifficulty}): ${highScores[currentDifficulty]}`;
 
 // ----------------------------------------------------
 // INITIALIZE
@@ -89,7 +108,7 @@ function init() {
     pipes.push(createPipePair(PIPE_START_X + i * PIPE_SPACING));
   }
 
-  // Spikes (special mode only)
+  // Spikes
   for (let i = 0; i < 4; i++) {
     let s = createSpike(PIPE_START_X + i * 4);
     spikes.push(s);
@@ -101,13 +120,35 @@ function init() {
   modeSwitch.addEventListener("change", () => setVisualMode(modeSwitch.checked));
 
   document.getElementById("flapBtn").addEventListener("click", flap);
+
   window.addEventListener("keydown", e => {
-    if (e.code === "Space") flap();
-    if (e.code === "KeyR") resetGame();
+    if (e.code === "Space") {
+      if (!running) startGame();
+      flap();
+    }
+    if (e.code === "KeyR") startGame();
   });
-  window.addEventListener("pointerdown", flap);
+
+  window.addEventListener("pointerdown", () => {
+    if (!running) startGame();
+    flap();
+  });
+
+  startBtn.addEventListener("click", startGame);
+  restartBtn.addEventListener("click", startGame);
 
   showMessage("Tap / Space to start");
+}
+
+// ----------------------------------------------------
+// START GAME FUNCTION
+// ----------------------------------------------------
+function startGame() {
+  resetGame();
+  running = true;
+  startBtn.style.display = "none";
+  restartBtn.style.display = "none";
+  messageText.textContent = "";
 }
 
 // ----------------------------------------------------
@@ -143,19 +184,27 @@ function createFullBird() {
 // PIPE CREATION
 // ----------------------------------------------------
 function createPipePair(xPos) {
-  const yCenter = Math.random() * 2 - 0.3;
+  const gapSize = pipeGap * GAP_MULTIPLIER;
+  const yCenter = Math.random() * 1.2 + 0.2;
 
-  let geom = new THREE.CylinderGeometry(0.4, 0.4, 5, 16);
+  const geom = new THREE.CylinderGeometry(0.4, 0.4, PIPE_HEIGHT, 16);
+  const matPrimitive = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
+  const matFull = matPrimitive.clone();
 
-  let matPrimitive = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
-  let matFull = matPrimitive.clone();
-
-  let top = new THREE.Mesh(geom, matPrimitive);
-  top.position.set(xPos, yCenter + pipeGap, 0);
+  const top = new THREE.Mesh(geom, matPrimitive);
+  top.position.set(
+    xPos,
+    PIPE_Y_OFFSET + yCenter + gapSize / 2 + PIPE_HEIGHT / 2,
+    0
+  );
   scene.add(top);
 
-  let bottom = new THREE.Mesh(geom, matPrimitive);
-  bottom.position.set(xPos, yCenter - pipeGap - 5, 0);
+  const bottom = new THREE.Mesh(geom, matPrimitive);
+  bottom.position.set(
+    xPos,
+    PIPE_Y_OFFSET + yCenter - gapSize / 2 - PIPE_HEIGHT / 2,
+    0
+  );
   scene.add(bottom);
 
   top.userData = { primitiveMat: matPrimitive, fullMat: matFull };
@@ -185,10 +234,16 @@ function createSpike(xPos) {
 // DIFFICULTY
 // ----------------------------------------------------
 function applyDifficulty(mode) {
+  currentDifficulty = mode;
+
   if (mode === "easy") { pipeSpeed = 1.2; pipeGap = 1.8; obstacleEnabled = false; }
   if (mode === "normal") { pipeSpeed = 2; pipeGap = 1.2; obstacleEnabled = false; }
   if (mode === "hard") { pipeSpeed = 3; pipeGap = 0.9; obstacleEnabled = false; }
   if (mode === "special") { pipeSpeed = 3.5; pipeGap = 1.1; obstacleEnabled = true; }
+
+  spikes.forEach(s => s.visible = obstacleEnabled);
+
+  highScoreText.textContent = `Best (${mode}): ${highScores[mode]}`;
 }
 
 // ----------------------------------------------------
@@ -228,6 +283,8 @@ function updateBird(dt) {
   activeBird.position.y += velocity * dt;
 
   if (activeBird.position.y < 0.2) gameOver();
+  if (activeBird.position.y > 5) gameOver();
+
   activeBird.rotation.z = -velocity * 0.2;
 }
 
@@ -243,10 +300,21 @@ function updatePipes(dt) {
     }
 
     if (pair.top.position.x < PIPE_RECYCLE_X) {
-      let newY = Math.random() * 2 - 0.3;
-      let x = PIPE_RESET_X;
-      pair.top.position.set(x, newY + pipeGap, 0);
-      pair.bottom.position.set(x, newY - pipeGap - 5, 0);
+      const gapSize = pipeGap * GAP_MULTIPLIER;
+      const yCenter = Math.random() * 1.2 + 0.2;
+
+      pair.top.position.set(
+        PIPE_RESET_X,
+        PIPE_Y_OFFSET + yCenter + gapSize / 2 + PIPE_HEIGHT / 2,
+        0
+      );
+
+      pair.bottom.position.set(
+        PIPE_RESET_X,
+        PIPE_Y_OFFSET + yCenter - gapSize / 2 - PIPE_HEIGHT / 2,
+        0
+      );
+
       pair.passed = false;
     }
   }
@@ -295,15 +363,52 @@ function flap() {
 
 function gameOver() {
   running = false;
-  messageText.innerHTML = "Game Over<br>Press R to Restart";
+
+  // Update high score for this difficulty
+  if (score > highScores[currentDifficulty]) {
+    highScores[currentDifficulty] = score;
+    localStorage.setItem(`flappyHigh_${currentDifficulty}`, score);
+  }
+
+  highScoreText.textContent = `Best (${currentDifficulty}): ${highScores[currentDifficulty]}`;
+
+  messageText.innerHTML = "Game Over<br>Press Restart";
+  restartBtn.style.display = "block";
 }
 
 function resetGame() {
-  running = true;
   score = 0;
   scoreText.textContent = "Score: 0";
   velocity = 0;
+
   activeBird.position.set(0, 1.5, 0);
+
+  for (let i = 0; i < pipes.length; i++) {
+    let x = PIPE_START_X + i * PIPE_SPACING;
+
+    const gapSize = pipeGap * GAP_MULTIPLIER;
+    const yCenter = Math.random() * 1.2 + 0.2;
+
+    pipes[i].top.position.set(
+      x,
+      PIPE_Y_OFFSET + yCenter + gapSize / 2 + PIPE_HEIGHT / 2,
+      0
+    );
+
+    pipes[i].bottom.position.set(
+      x,
+      PIPE_Y_OFFSET + yCenter - gapSize / 2 - PIPE_HEIGHT / 2,
+      0
+    );
+
+    pipes[i].passed = false;
+  }
+
+  for (let i = 0; i < spikes.length; i++) {
+    spikes[i].position.set(PIPE_START_X + i * 4, spikes[i].userData.baseY, 0);
+  }
+
+  spikes.forEach(s => s.visible = obstacleEnabled);
   messageText.textContent = "Tap / Space to start";
 }
 

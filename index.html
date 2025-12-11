@@ -12,43 +12,87 @@
       background: #000;
       font-family: system-ui, sans-serif;
     }
+
+    /* UI panel */
     #ui {
-      position: absolute; top: 10px; left: 10px;
+      position: absolute;
+      top: 10px; left: 10px;
       z-index: 10;
       background: rgba(0,0,0,0.5);
-      padding: 8px 10px;
-      border-radius: 8px;
+      padding: 10px 14px;
+      border-radius: 10px;
       color: #fff;
       display: flex;
       flex-direction: column;
-      gap: 5px;
-    }
-    #flapBtn {
-      position: absolute; bottom: 20px; right: 20px;
-      z-index: 10;
-      padding: 12px 18px;
+      gap: 6px;
       font-size: 16px;
-      border-radius: 999px;
-      background: #ffcc00;
-      font-weight: bold;
-      border: none;
     }
+
+    /* Message text in the middle */
     #message {
       position: absolute;
       top: 50%; left: 50%;
       transform: translate(-50%, -50%);
       z-index: 10;
-      color: white; font-size: 26px;
+      color: white;
+      font-size: 28px;
       text-shadow: 0 0 10px black;
       text-align: center;
+      pointer-events: none;
+    }
+
+    /* Big FLAP button */
+    #flapBtn {
+      position: absolute;
+      bottom: 30px; right: 30px;
+      z-index: 10;
+      padding: 22px 34px;
+      font-size: 26px;
+      border-radius: 999px;
+      background: #ffcc00;
+      font-weight: bold;
+      border: none;
+      cursor: pointer;
+    }
+
+    /* Start & Restart buttons */
+    #startBtn, #restartBtn {
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 16px 32px;
+      font-size: 22px;
+      border-radius: 12px;
+      border: none;
+      font-weight: bold;
+      cursor: pointer;
+      z-index: 10;
+    }
+
+    #startBtn {
+      bottom: 150px;
+      background: #00ccff;
+      color: black;
+    }
+
+    #restartBtn {
+      bottom: 90px;
+      background: #ff4444;
+      color: white;
+    }
+
+    #restartBtn {
+      display: none;   /* restart button hidden initially */
     }
   </style>
 </head>
 
 <body>
 
+  <!-- Top-left UI panel -->
   <div id="ui">
     <div id="score">Score: 0</div>
+    <div id="highScore">Best (Normal): 0</div>
 
     <label>
       Difficulty:
@@ -66,10 +110,17 @@
     </label>
   </div>
 
-  <button id="flapBtn">Flap</button>
+  <!-- NEW buttons -->
+  <button id="startBtn">Start Game</button>
+  <button id="restartBtn">Restart</button>
 
+  <!-- FLAP button -->
+  <button id="flapBtn">FLAP</button>
+
+  <!-- Center message -->
   <div id="message"></div>
 
+  <!-- Main script -->
   <script type="module" src="script.js"></script>
 
 </body>
