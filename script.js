@@ -352,8 +352,8 @@ function updateBird(dt) {
   birdAnchor.position.y += velocity * dt;
   birdCollider.position.copy(birdAnchor.position);
   birdAnchor.rotation.z = -velocity * 0.2;
-  if (activeBird.position.y < 0.2) gameOver();
-  if (activeBird.position.y > 5) gameOver();
+  if (birdAnchor.position.y < 0.2) gameOver();
+  if (birdAnchor.position.y > 5) gameOver();
 
   activeBird.rotation.z = -velocity * 0.2;
 }
@@ -451,7 +451,7 @@ function resetGame() {
   scoreText.textContent = "Score: 0";
   velocity = 0;
 
-  birdAnchor.position.set(0, 1.5, 0);
+  birdAnchor.position.set(0, 2.5, 0);
   birdCollider.position.copy(activeBird.position);
 
   for (let i = 0; i < pipes.length; i++) {
