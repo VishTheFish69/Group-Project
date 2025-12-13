@@ -6,6 +6,7 @@ import { GLTFLoader } from "./libs/GLTFLoader.js";
 // ----------------------------------------------------
 let scene, camera, renderer, clock;
 let birdPrimitive, birdFull, activeBird;
+let birdCollider; // collision proxy
 let pipes = [];
 let spikes = [];
 let gravity = -9.8;
@@ -21,7 +22,7 @@ const PIPE_SPACING = 3;
 const PIPE_START_X = 6;
 const PIPE_RECYCLE_X = -5;
 const PIPE_RESET_X = 12;
-const PIPE_HEIGHT = 2.2;  
+const PIPE_HEIGHT = 2.2;
 const GAP_MULTIPLIER = 2.2;
 const PIPE_Y_OFFSET = 1.2;
 
@@ -84,13 +85,6 @@ function init() {
   );
   floor.rotation.x = -Math.PI / 2;
   floor.position.y = 0;
-  floor.userData = {
-    primitiveMat: floor.material,
-    fullMat: () =>
-      new THREE.MeshStandardMaterial({
-        map: new THREE.TextureLoader().load("https://threejs.org/examples/textures/uv_grid_opengl.jpg")
-      })
-  };
   scene.add(floor);
 
   // Birds
@@ -102,6 +96,13 @@ function init() {
   birdFull.visible = false;
 
   activeBird = birdPrimitive;
+
+  // ✅ Invisible collider (fixed-size)
+  birdCollider = new THREE.Mesh(
+    new THREE.SphereGeometry(0.25),
+    new THREE.MeshBasicMaterial({ visible: false })
+  );
+  scene.add(birdCollider);
 
   // Pipes
   for (let i = 0; i < NUM_PIPES; i++) {
@@ -141,7 +142,7 @@ function init() {
 }
 
 // ----------------------------------------------------
-// START GAME FUNCTION
+// START GAME
 // ----------------------------------------------------
 function startGame() {
   resetGame();
@@ -188,27 +189,25 @@ function createPipePair(xPos) {
   const yCenter = Math.random() * 1.2 + 0.2;
 
   const geom = new THREE.CylinderGeometry(0.4, 0.4, PIPE_HEIGHT, 16);
-  const matPrimitive = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
-  const matFull = matPrimitive.clone();
+  const mat = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
 
-  const top = new THREE.Mesh(geom, matPrimitive);
+  const top = new THREE.Mesh(geom, mat);
+  const bottom = new THREE.Mesh(geom, mat);
+
   top.position.set(
     xPos,
     PIPE_Y_OFFSET + yCenter + gapSize / 2 + PIPE_HEIGHT / 2,
     0
   );
-  scene.add(top);
 
-  const bottom = new THREE.Mesh(geom, matPrimitive);
   bottom.position.set(
     xPos,
     PIPE_Y_OFFSET + yCenter - gapSize / 2 - PIPE_HEIGHT / 2,
     0
   );
-  scene.add(bottom);
 
-  top.userData = { primitiveMat: matPrimitive, fullMat: matFull };
-  bottom.userData = { primitiveMat: matPrimitive, fullMat: matFull };
+  scene.add(top);
+  scene.add(bottom);
 
   return { top, bottom, passed: false };
 }
@@ -242,7 +241,6 @@ function applyDifficulty(mode) {
   if (mode === "special") { pipeSpeed = 3.5; pipeGap = 1.1; obstacleEnabled = true; }
 
   spikes.forEach(s => s.visible = obstacleEnabled);
-
   highScoreText.textContent = `Best (${mode}): ${highScores[mode]}`;
 }
 
@@ -253,12 +251,6 @@ function setVisualMode(full) {
   birdPrimitive.visible = !full;
   birdFull.visible = full;
   activeBird = full ? birdFull : birdPrimitive;
-
-  scene.traverse(obj => {
-    if (obj.isMesh && obj.userData.primitiveMat) {
-      obj.material = full ? obj.userData.fullMat : obj.userData.primitiveMat;
-    }
-  });
 }
 
 // ----------------------------------------------------
@@ -281,6 +273,8 @@ function animate() {
 function updateBird(dt) {
   velocity += gravity * dt;
   activeBird.position.y += velocity * dt;
+
+  birdCollider.position.copy(activeBird.position);
 
   if (activeBird.position.y < 0.2) gameOver();
   if (activeBird.position.y > 5) gameOver();
@@ -338,7 +332,7 @@ function updateSpikes(dt) {
 // COLLISION
 // ----------------------------------------------------
 function checkCollision() {
-  let birdBox = new THREE.Box3().setFromObject(activeBird);
+  let birdBox = new THREE.Box3().setFromObject(birdCollider);
 
   for (let pair of pipes) {
     if (birdBox.intersectsBox(new THREE.Box3().setFromObject(pair.top))) return gameOver();
@@ -358,20 +352,17 @@ function checkCollision() {
 function flap() {
   if (!running) return;
   velocity = 4.5;
-  messageText.textContent = "";
 }
 
 function gameOver() {
   running = false;
 
-  // Update high score for this difficulty
   if (score > highScores[currentDifficulty]) {
     highScores[currentDifficulty] = score;
     localStorage.setItem(`flappyHigh_${currentDifficulty}`, score);
   }
 
   highScoreText.textContent = `Best (${currentDifficulty}): ${highScores[currentDifficulty]}`;
-
   messageText.innerHTML = "Game Over<br>Press Restart";
   restartBtn.style.display = "block";
 }
@@ -382,10 +373,10 @@ function resetGame() {
   velocity = 0;
 
   activeBird.position.set(0, 1.5, 0);
+  birdCollider.position.copy(activeBird.position);
 
   for (let i = 0; i < pipes.length; i++) {
     let x = PIPE_START_X + i * PIPE_SPACING;
-
     const gapSize = pipeGap * GAP_MULTIPLIER;
     const yCenter = Math.random() * 1.2 + 0.2;
 
