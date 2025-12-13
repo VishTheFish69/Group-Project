@@ -362,6 +362,14 @@ function updatePipes(dt) {
   for (let pair of pipes) {
     pair.top.position.x -= pipeSpeed * dt;
     pair.bottom.position.x -= pipeSpeed * dt;
+    
+    if (activeBird === birdFull) {
+      pair.top.rotation.y += 0.5 * dt;
+      pair.bottom.rotation.y += 0.5 * dt;
+    } else {
+      pair.top.rotation.set(0, 0, 0);
+      pair.bottom.rotation.set(0, 0, 0);
+    }
 
     pair.top.rotation.y += PIPE_ROTATION_SPEED * dt;
     pair.bottom.rotation.y += PIPE_ROTATION_SPEED * dt;
