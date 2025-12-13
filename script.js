@@ -16,6 +16,10 @@ let pipeGap = 1;
 let obstacleEnabled = false;
 let running = false;
 let score = 0;
+let birdMixer;
+let birdAnchor;
+let birdTrail = [];
+const MAX_TRAIL = 18;
 
 const NUM_PIPES = 6;
 const PIPE_SPACING = 3;
@@ -25,6 +29,18 @@ const PIPE_RESET_X = 12;
 const PIPE_HEIGHT = 2.2;
 const GAP_MULTIPLIER = 2.2;
 const PIPE_Y_OFFSET = 1.2;
+const PIPE_ROTATION_SPEED = 1.2; // radians per second
+const textureLoader = new THREE.TextureLoader();
+const pipeTexture = textureLoader.load("./textures/greenpipe.png");
+pipeTexture.wrapS = THREE.RepeatWrapping;
+pipeTexture.wrapT = THREE.RepeatWrapping;
+
+// Repeat around circumference so spinning is visible
+pipeTexture.repeat.set(2, 1);
+
+// Correct color space (important for WebGL)
+pipeTexture.colorSpace = THREE.SRGBColorSpace;
+
 
 // UI references
 const scoreText = document.getElementById("score");
@@ -53,6 +69,38 @@ highScoreText.textContent = `Best (${currentDifficulty}): ${highScores[currentDi
 // ----------------------------------------------------
 init();
 animate();
+
+function spawnBirdTrail() {
+  const sprite = new THREE.Sprite(
+    new THREE.SpriteMaterial({
+      color: 0xffffaa,
+      transparent: true,
+      opacity: 0.6
+    })
+  );
+
+  sprite.position.set(
+    birdAnchor.position.x - 0.2,
+    birdAnchor.position.y,
+    birdAnchor.position.z
+  );
+
+  sprite.scale.set(0.22, 0.22, 0.22);
+
+  // Give the particle its own velocity (snow effect)
+  sprite.userData.velocity = new THREE.Vector3(
+    -0.6,                 // drift left
+    -0.02 + Math.random() * 0.04, // tiny vertical randomness
+    0
+  );
+
+  scene.add(sprite);
+  birdTrail.push(sprite);
+
+  if (birdTrail.length > MAX_TRAIL) {
+    scene.remove(birdTrail.shift());
+  }
+}
 
 function init() {
   scene = new THREE.Scene();
@@ -87,17 +135,22 @@ function init() {
   floor.position.y = 0;
   scene.add(floor);
 
-  // Birds
-  birdPrimitive = createPrimitiveBird();
-  scene.add(birdPrimitive);
+ // Bird anchor (single source of truth)
+  birdAnchor = new THREE.Object3D();
+  scene.add(birdAnchor);
 
+  // Primitive bird
+  birdPrimitive = createPrimitiveBird();
+  birdAnchor.add(birdPrimitive);
+
+  // Full bird
   birdFull = createFullBird();
-  scene.add(birdFull);
+  birdAnchor.add(birdFull);
   birdFull.visible = false;
 
   activeBird = birdPrimitive;
 
-  // ✅ Invisible collider (fixed-size)
+  // Invisible collider (fixed-size)
   birdCollider = new THREE.Mesh(
     new THREE.SphereGeometry(0.25),
     new THREE.MeshBasicMaterial({ visible: false })
@@ -163,22 +216,26 @@ function createPrimitiveBird() {
 }
 
 function createFullBird() {
-  let mesh = new THREE.Mesh(
-    new THREE.SphereGeometry(0.25),
-    new THREE.MeshStandardMaterial({ color: 0xffaa00 })
-  );
+  const group = new THREE.Group();
 
   const loader = new GLTFLoader();
   loader.load(
     "https://threejs.org/examples/models/gltf/Flamingo.glb",
     gltf => {
-      let m = gltf.scene;
-      m.scale.set(0.01, 0.01, 0.01);
-      mesh.add(m);
+      const bird = gltf.scene;
+
+      bird.scale.set(0.01, 0.01, 0.01);
+      bird.rotation.y = Math.PI / 2; // face forward
+      bird.position.y = -0.15;       // center visually on collider
+
+      group.add(bird);
+
+      birdMixer = new THREE.AnimationMixer(bird);
+      birdMixer.clipAction(gltf.animations[0]).play();
     }
   );
 
-  return mesh;
+  return group;
 }
 
 // ----------------------------------------------------
@@ -189,7 +246,11 @@ function createPipePair(xPos) {
   const yCenter = Math.random() * 1.2 + 0.2;
 
   const geom = new THREE.CylinderGeometry(0.4, 0.4, PIPE_HEIGHT, 16);
-  const mat = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
+  const mat = new THREE.MeshStandardMaterial({
+  map: pipeTexture,
+  roughness: 0.5,
+  metalness: 0.05
+});
 
   const top = new THREE.Mesh(geom, mat);
   const bottom = new THREE.Mesh(geom, mat);
@@ -259,9 +320,25 @@ function setVisualMode(full) {
 function animate() {
   requestAnimationFrame(animate);
   let dt = clock.getDelta();
-
+  if (birdMixer) birdMixer.update(dt);
   if (running) {
     updateBird(dt);
+    spawnBirdTrail();
+
+  for (let i = birdTrail.length - 1; i >= 0; i--) {
+  const p = birdTrail[i];
+
+  p.position.addScaledVector(p.userData.velocity, dt);
+
+  // Fade out
+  p.material.opacity *= 0.92;
+
+  // Remove when invisible
+  if (p.material.opacity < 0.05) {
+    scene.remove(p);
+    birdTrail.splice(i, 1);
+  }
+}
     updatePipes(dt);
     updateSpikes(dt);
     checkCollision();
@@ -272,10 +349,9 @@ function animate() {
 
 function updateBird(dt) {
   velocity += gravity * dt;
-  activeBird.position.y += velocity * dt;
-
-  birdCollider.position.copy(activeBird.position);
-
+  birdAnchor.position.y += velocity * dt;
+  birdCollider.position.copy(birdAnchor.position);
+  birdAnchor.rotation.z = -velocity * 0.2;
   if (activeBird.position.y < 0.2) gameOver();
   if (activeBird.position.y > 5) gameOver();
 
@@ -286,6 +362,9 @@ function updatePipes(dt) {
   for (let pair of pipes) {
     pair.top.position.x -= pipeSpeed * dt;
     pair.bottom.position.x -= pipeSpeed * dt;
+
+    pair.top.rotation.y += PIPE_ROTATION_SPEED * dt;
+    pair.bottom.rotation.y += PIPE_ROTATION_SPEED * dt;
 
     if (!pair.passed && pair.top.position.x < activeBird.position.x) {
       pair.passed = true;
@@ -372,7 +451,7 @@ function resetGame() {
   scoreText.textContent = "Score: 0";
   velocity = 0;
 
-  activeBird.position.set(0, 1.5, 0);
+  birdAnchor.position.set(0, 1.5, 0);
   birdCollider.position.copy(activeBird.position);
 
   for (let i = 0; i < pipes.length; i++) {
