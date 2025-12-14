@@ -195,17 +195,15 @@ function init() {
   document.getElementById("flapBtn").addEventListener("click", flap);
 
   window.addEventListener("keydown", e => {
-    if (e.code === "Space") {
-      if (!running) startGame();
+    if (e.code === "Space" && running) {
       flap();
     }
-    if (e.code === "KeyR") startGame();
   });
 
   window.addEventListener("pointerdown", () => {
-    if (!running) startGame();
-    flap();
+    if (running) flap();
   });
+
 
   startBtn.addEventListener("click", startGame);
   restartBtn.addEventListener("click", startGame);
@@ -224,7 +222,7 @@ function startGame() {
 function createPrimitiveBird() {
   return new THREE.Mesh(
     new THREE.SphereGeometry(0.25, 16, 16),
-    new THREE.MeshStandardMaterial({ color: 0xffff00 })
+    new THREE.MeshStandardMaterial({ color: 0xff1493 })
   );
 }
 
