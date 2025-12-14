@@ -12,10 +12,12 @@ let spikes = [];
 let spikePrototypeMaterial;
 let spikeBirdMaterial;
 let scarecrowModel;
+let cloudModel;
 let gravity = -9.8;
 let velocity = 0;
 let pipeSpeed = 2;
 let pipeGap = 1;
+let clouds = [];
 let obstacleEnabled = false;
 let running = false;
 let score = 0;
@@ -30,6 +32,8 @@ const PIPE_START_X = 6;
 const PIPE_RECYCLE_X = -5;
 const PIPE_RESET_X = 12;
 const PIPE_HEIGHT = 2.2;
+const CLOUD_RECYCLE_X = -8;
+const CLOUD_RESET_X = 12;
 const GAP_MULTIPLIER = 2.2;
 const PIPE_Y_OFFSET = 1.2;
 const PIPE_ROTATION_SPEED = 1.2; // radians per second
@@ -137,6 +141,15 @@ function init() {
   floor.rotation.x = -Math.PI / 2;
   floor.position.y = 0;
   scene.add(floor);
+
+  loadCloudModel();
+
+  // Background clouds (simple circle clusters)
+  let startX = -2;
+  for (let i = 0; i < 14; i++) {
+    const jitter = Math.random() * 0.5;
+    clouds.push(createCloudCluster(startX + i * 1.5 + jitter));
+  }
 
  // Bird anchor (single source of truth)
   birdAnchor = new THREE.Object3D();
@@ -282,6 +295,88 @@ function createPipePair(xPos) {
 }
 
 // ----------------------------------------------------
+// CLOUDS
+// ----------------------------------------------------
+function createCloudCluster(xPos) {
+  const group = new THREE.Group();
+  group.position.set(
+    xPos,
+    2 + Math.random() * 2.2,
+    -1.5
+  );
+  group.userData.speedMultiplier = 0.5 + Math.random() * 0.35;
+  setCloudVisual(group, modeSwitch.checked && cloudModel);
+  scene.add(group);
+  return group;
+}
+
+function setCloudVisual(group, fullMode) {
+  group.clear();
+
+  if (fullMode && cloudModel) {
+    const mesh = cloudModel.clone(true);
+    mesh.scale.set(0.003, 0.003, 0.003);
+    mesh.position.set(0, 0, 0);
+    group.add(mesh);
+    group.userData.fullVisual = true;
+    return;
+  }
+
+  const material = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.7
+  });
+
+  for (let i = 0; i < 3; i++) {
+    const radius = 0.35 + Math.random() * 0.35;
+    const circle = new THREE.Mesh(new THREE.CircleGeometry(radius, 24), material);
+    circle.position.set(
+      (Math.random() - 0.5) * 0.8,
+      (Math.random() - 0.5) * 0.25,
+      0
+    );
+    group.add(circle);
+  }
+  group.userData.fullVisual = false;
+}
+
+function applyCloudVisualMode(fullMode) {
+  clouds.forEach(c => setCloudVisual(c, fullMode && cloudModel));
+}
+
+function loadCloudModel() {
+  const loader = new GLTFLoader();
+  loader.load(
+    "./objs/cloud.glb",
+    gltf => {
+      const group = new THREE.Group();
+      gltf.scene.traverse(child => {
+        if (child.isMesh) {
+          const mesh = child.clone();
+          mesh.geometry = mesh.geometry.clone();
+          mesh.material = new THREE.MeshBasicMaterial({
+            color: 0xffffff,
+            transparent: true,
+            opacity: 0.82,
+            depthWrite: false,
+            side: THREE.DoubleSide
+          });
+          group.add(mesh);
+        }
+      });
+      cloudModel = group;
+      if (modeSwitch.checked) applyCloudVisualMode(true);
+    },
+    undefined,
+    err => {
+      console.error("[Cloud] Failed to load GLB", err);
+      alert(`Cloud model failed to load: ${err.message || err}`);
+    }
+  );
+}
+
+// ----------------------------------------------------
 // SPIKES
 // ----------------------------------------------------
 function createSpike(xPos) {
@@ -391,6 +486,7 @@ function setVisualMode(full) {
   birdFull.visible = full;
   activeBird = full ? birdFull : birdPrimitive;
   applySpikeMaterial(full);
+  applyCloudVisualMode(full);
 }
 
 // ----------------------------------------------------
@@ -403,21 +499,21 @@ function animate() {
   if (running) {
     updateBird(dt);
     spawnBirdTrail();
+    updateClouds(dt);
 
-  for (let i = birdTrail.length - 1; i >= 0; i--) {
-  const p = birdTrail[i];
+    for (let i = birdTrail.length - 1; i >= 0; i--) {
+      const p = birdTrail[i];
 
-  p.position.addScaledVector(p.userData.velocity, dt);
+      p.position.addScaledVector(p.userData.velocity, dt);
 
-  // Fade out
-  p.material.opacity *= 0.92;
+      // Fade out trail sprites as they drift
+      p.material.opacity *= 0.92;
 
-  // Remove when invisible
-  if (p.material.opacity < 0.05) {
-    scene.remove(p);
-    birdTrail.splice(i, 1);
-  }
-}
+      if (p.material.opacity < 0.05) {
+        scene.remove(p);
+        birdTrail.splice(i, 1);
+      }
+    }
     updatePipes(dt);
     updateSpikes(dt);
     checkCollision();
@@ -494,6 +590,27 @@ function updateSpikes(dt) {
   }
 }
 
+function updateClouds(dt) {
+  let furthestX = -Infinity;
+
+  // Move clouds and track the current furthest one
+  for (let cloud of clouds) {
+    cloud.position.x -= pipeSpeed * cloud.userData.speedMultiplier * dt;
+    furthestX = Math.max(furthestX, cloud.position.x);
+  }
+
+  // Recycle clouds just beyond the last one to keep spacing consistent
+  for (let cloud of clouds) {
+    if (cloud.position.x < CLOUD_RECYCLE_X) {
+      const spacing = 1.2 + Math.random() * 1.8;
+      cloud.position.x = furthestX + spacing;
+      cloud.position.y = 2 + Math.random() * 2.2;
+      cloud.userData.speedMultiplier = 0.5 + Math.random() * 0.35;
+      furthestX = cloud.position.x;
+    }
+  }
+}
+
 // ----------------------------------------------------
 // COLLISION
 // ----------------------------------------------------
@@ -566,6 +683,16 @@ function resetGame() {
   }
 
   spikes.forEach(s => s.visible = obstacleEnabled);
+  let startX = -2;
+  for (let i = 0; i < clouds.length; i++) {
+    const jitter = Math.random() * 0.5;
+    clouds[i].position.set(
+      startX + i * 1.5 + jitter,
+      2 + Math.random() * 2.2,
+      -1.5
+    );
+    clouds[i].userData.speedMultiplier = 0.5 + Math.random() * 0.35;
+  }
   messageText.textContent = "Tap / Space to start";
 }
 
