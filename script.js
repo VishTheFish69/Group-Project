@@ -543,7 +543,7 @@ function ensureSpikeVisual(spike) {
   if (spike.userData.visual) return;
 
   const visual = scarecrowModel.clone(true);
-  visual.scale.set(0.35, 0.35, 0.35);
+  visual.scale.set(0.15, 0.15, 0.15);
   visual.position.set(0, -0.15, 0);
   visual.rotation.y = -Math.PI * 0.25;
   spike.add(visual);
