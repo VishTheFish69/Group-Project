@@ -1,18 +1,21 @@
 import * as THREE from "./libs/three.module.js";
 import { GLTFLoader } from "./libs/GLTFLoader.js";
 
-// ----------------------------------------------------
-// GLOBAL VARS
-// ----------------------------------------------------
 let scene, camera, renderer, clock;
 let birdPrimitive, birdFull, activeBird;
-let birdCollider; // collision proxy
+let birdCollider;
 let pipes = [];
 let spikes = [];
 let spikePrototypeMaterial;
 let spikeBirdMaterial;
 let scarecrowModel;
 let cloudModel;
+let groundTextureProcedural;
+let groundTextureFull;
+let groundTextureActive;
+let groundMesh;
+let groundScroll = 0;
+let birdShadow;
 let gravity = -9.8;
 let velocity = 0;
 let pipeSpeed = 2;
@@ -34,22 +37,21 @@ const PIPE_RESET_X = 12;
 const PIPE_HEIGHT = 2.2;
 const CLOUD_RECYCLE_X = -8;
 const CLOUD_RESET_X = 12;
+const GROUND_SIZE = 40;
+const GROUND_REPEAT = 12;
 const GAP_MULTIPLIER = 2.2;
 const PIPE_Y_OFFSET = 1.2;
-const PIPE_ROTATION_SPEED = 1.2; // radians per second
+const PIPE_ROTATION_SPEED = 1.2;
 const textureLoader = new THREE.TextureLoader();
 const pipeTexture = textureLoader.load("./textures/greenpipe.png");
 pipeTexture.wrapS = THREE.RepeatWrapping;
 pipeTexture.wrapT = THREE.RepeatWrapping;
 
-// Repeat around circumference so spinning is visible
 pipeTexture.repeat.set(2, 1);
 
-// Correct color space (important for WebGL)
 pipeTexture.colorSpace = THREE.SRGBColorSpace;
 
 
-// UI references
 const scoreText = document.getElementById("score");
 const messageText = document.getElementById("message");
 const difficultySelect = document.getElementById("difficulty");
@@ -58,9 +60,6 @@ const startBtn = document.getElementById("startBtn");
 const restartBtn = document.getElementById("restartBtn");
 const highScoreText = document.getElementById("highScore");
 
-// ----------------------------------------------------
-// HIGH SCORES PER DIFFICULTY
-// ----------------------------------------------------
 let highScores = {
   easy: Number(localStorage.getItem("flappyHigh_easy")) || 0,
   normal: Number(localStorage.getItem("flappyHigh_normal")) || 0,
@@ -71,9 +70,6 @@ let highScores = {
 let currentDifficulty = "normal";
 highScoreText.textContent = `Best (${currentDifficulty}): ${highScores[currentDifficulty]}`;
 
-// ----------------------------------------------------
-// INITIALIZE
-// ----------------------------------------------------
 init();
 animate();
 
@@ -94,10 +90,9 @@ function spawnBirdTrail() {
 
   sprite.scale.set(0.22, 0.22, 0.22);
 
-  // Give the particle its own velocity (snow effect)
   sprite.userData.velocity = new THREE.Vector3(
-    -0.6,                 // drift left
-    -0.02 + Math.random() * 0.04, // tiny vertical randomness
+    -0.6,
+    -0.02 + Math.random() * 0.04,
     0
   );
 
@@ -127,62 +122,66 @@ function init() {
 
   clock = new THREE.Clock();
 
-  // Lights
   scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1));
   let dir = new THREE.DirectionalLight(0xffffff, 1);
   dir.position.set(5, 10, 7);
   scene.add(dir);
 
-  // Floor
-  const floor = new THREE.Mesh(
-    new THREE.PlaneGeometry(40, 40),
-    new THREE.MeshStandardMaterial({ color: 0x228b22 })
+  groundTextureProcedural = createGroundTexture();
+  groundTextureProcedural.wrapS = THREE.RepeatWrapping;
+  groundTextureProcedural.wrapT = THREE.RepeatWrapping;
+  groundTextureProcedural.repeat.set(GROUND_REPEAT, GROUND_REPEAT);
+  groundTextureProcedural.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  groundTextureActive = groundTextureProcedural;
+  groundMesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(GROUND_SIZE, GROUND_SIZE),
+    new THREE.MeshStandardMaterial({
+      map: groundTextureActive,
+      roughness: 0.9,
+      metalness: 0.0
+    })
   );
-  floor.rotation.x = -Math.PI / 2;
-  floor.position.y = 0;
-  scene.add(floor);
+  groundMesh.rotation.x = -Math.PI / 2;
+  groundMesh.position.y = 0;
+  scene.add(groundMesh);
+  loadGroundTextureFull();
+
+  birdShadow = createBirdShadow();
+  scene.add(birdShadow);
 
   loadCloudModel();
 
-  // Background clouds (simple circle clusters)
   let startX = -2;
   for (let i = 0; i < 14; i++) {
     const jitter = Math.random() * 0.5;
     clouds.push(createCloudCluster(startX + i * 1.5 + jitter));
   }
 
- // Bird anchor (single source of truth)
   birdAnchor = new THREE.Object3D();
   scene.add(birdAnchor);
 
-  // Primitive bird
   birdPrimitive = createPrimitiveBird();
   birdAnchor.add(birdPrimitive);
 
-  // Full bird
   birdFull = createFullBird();
   birdAnchor.add(birdFull);
   birdFull.visible = false;
 
   activeBird = birdPrimitive;
 
-  // Invisible collider (fixed-size)
   birdCollider = new THREE.Mesh(
     new THREE.SphereGeometry(0.25),
     new THREE.MeshBasicMaterial({ visible: false })
   );
   scene.add(birdCollider);
 
-  // Materials
   spikePrototypeMaterial = new THREE.MeshStandardMaterial({ color: 0xff0000 });
   loadBirdSpikeMaterial();
 
-  // Pipes
   for (let i = 0; i < NUM_PIPES; i++) {
     pipes.push(createPipePair(PIPE_START_X + i * PIPE_SPACING));
   }
 
-  // Spikes
   for (let i = 0; i < 4; i++) {
     let s = createSpike(PIPE_START_X + i * 4);
     spikes.push(s);
@@ -190,7 +189,6 @@ function init() {
   }
   applySpikeMaterial(modeSwitch.checked);
 
-  // UI events
   difficultySelect.addEventListener("change", e => applyDifficulty(e.target.value));
   modeSwitch.addEventListener("change", () => setVisualMode(modeSwitch.checked));
 
@@ -215,9 +213,6 @@ function init() {
   showMessage("Tap / Space to start");
 }
 
-// ----------------------------------------------------
-// START GAME
-// ----------------------------------------------------
 function startGame() {
   resetGame();
   running = true;
@@ -226,9 +221,6 @@ function startGame() {
   messageText.textContent = "";
 }
 
-// ----------------------------------------------------
-// BIRD CREATION
-// ----------------------------------------------------
 function createPrimitiveBird() {
   return new THREE.Mesh(
     new THREE.SphereGeometry(0.25, 16, 16),
@@ -246,8 +238,8 @@ function createFullBird() {
       const bird = gltf.scene;
 
       bird.scale.set(0.01, 0.01, 0.01);
-      bird.rotation.y = Math.PI / 2; // face forward
-      bird.position.y = -0.15;       // center visually on collider
+      bird.rotation.y = Math.PI / 2;
+      bird.position.y = -0.15;
 
       group.add(bird);
 
@@ -259,9 +251,6 @@ function createFullBird() {
   return group;
 }
 
-// ----------------------------------------------------
-// PIPE CREATION
-// ----------------------------------------------------
 function createPipePair(xPos) {
   const gapSize = pipeGap * GAP_MULTIPLIER;
   const yCenter = Math.random() * 1.2 + 0.2;
@@ -294,9 +283,6 @@ function createPipePair(xPos) {
   return { top, bottom, passed: false };
 }
 
-// ----------------------------------------------------
-// CLOUDS
-// ----------------------------------------------------
 function createCloudCluster(xPos) {
   const group = new THREE.Group();
   group.position.set(
@@ -376,9 +362,112 @@ function loadCloudModel() {
   );
 }
 
-// ----------------------------------------------------
-// SPIKES
-// ----------------------------------------------------
+function createGroundTexture() {
+  const size = 256;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+
+  ctx.fillStyle = "#2c9c3a";
+  ctx.fillRect(0, 0, size, size);
+
+  for (let y = 0; y < size; y += 32) {
+    ctx.fillStyle = y % 64 === 0 ? "#2da341" : "#278e36";
+    ctx.fillRect(0, y, size, 32);
+  }
+
+  ctx.strokeStyle = "rgba(255,255,255,0.15)";
+  ctx.lineWidth = 2;
+  for (let y = 0; y < size; y += 16) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(size, y);
+    ctx.stroke();
+  }
+
+  ctx.beginPath();
+  ctx.fillStyle = "rgba(255,255,255,0.18)";
+  ctx.arc(size / 2, size / 2, 26, 0, Math.PI * 2);
+  ctx.fill();
+
+  for (let i = 0; i < 500; i++) {
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    const alpha = 0.05 + Math.random() * 0.08;
+    ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+    ctx.fillRect(x, y, 1, 1);
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+function loadGroundTextureFull() {
+  textureLoader.load(
+    "./objs/tiling-grass-texture.webp",
+    tex => {
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(GROUND_REPEAT, GROUND_REPEAT);
+      tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      tex.colorSpace = THREE.SRGBColorSpace;
+      groundTextureFull = tex;
+      if (modeSwitch.checked) applyGroundVisualMode(true);
+    },
+    undefined,
+    err => console.error("[Ground] Failed to load full ground texture", err)
+  );
+}
+
+function applyGroundVisualMode(fullMode) {
+  const target =
+    fullMode && groundTextureFull ? groundTextureFull : groundTextureProcedural;
+  if (!target || !groundMesh) return;
+  groundTextureActive = target;
+  groundMesh.material.map = target;
+  groundMesh.material.needsUpdate = true;
+  groundTextureActive.offset.set(groundScroll, 0);
+  groundTextureActive.repeat.set(GROUND_REPEAT, GROUND_REPEAT);
+}
+
+function createBirdShadow() {
+  const size = 128;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  const grd = ctx.createRadialGradient(
+    size / 2,
+    size / 2,
+    10,
+    size / 2,
+    size / 2,
+    size / 2
+  );
+  grd.addColorStop(0, "rgba(0,0,0,0.35)");
+  grd.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, size, size);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+
+  const material = new THREE.MeshBasicMaterial({
+    map: tex,
+    transparent: true,
+    opacity: 0.9,
+    depthWrite: false
+  });
+
+  const mesh = new THREE.Mesh(new THREE.CircleGeometry(0.45, 32), material);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.y = 0.01;
+  mesh.renderOrder = 2;
+  return mesh;
+}
+
 function createSpike(xPos) {
   const material =
     modeSwitch.checked && spikeBirdMaterial
@@ -407,7 +496,7 @@ function loadBirdSpikeMaterial() {
       spikeBirdMaterial = new THREE.MeshStandardMaterial({
         transparent: true,
         opacity: 0
-      }); // keep collider invisible in full mode; scarecrow provides visuals
+      });
 
       applySpikeMaterial(modeSwitch.checked);
     },
@@ -424,7 +513,6 @@ function loadBirdSpikeMaterial() {
 }
 
 function createFallbackBirdMaterial() {
-  // Neutral fallback if the GLB fails to load
   return new THREE.MeshStandardMaterial({
     color: new THREE.Color(0.6, 0.6, 0.6),
     roughness: 0.5,
@@ -457,14 +545,11 @@ function ensureSpikeVisual(spike) {
   const visual = scarecrowModel.clone(true);
   visual.scale.set(0.35, 0.35, 0.35);
   visual.position.set(0, -0.15, 0);
-  visual.rotation.y = -Math.PI * 0.25; // face toward the bird path
+  visual.rotation.y = -Math.PI * 0.25;
   spike.add(visual);
   spike.userData.visual = visual;
 }
 
-// ----------------------------------------------------
-// DIFFICULTY
-// ----------------------------------------------------
 function applyDifficulty(mode) {
   currentDifficulty = mode;
 
@@ -474,24 +559,19 @@ function applyDifficulty(mode) {
   if (mode === "special") { pipeSpeed = 3.5; pipeGap = 1.1; obstacleEnabled = true; }
 
   spikes.forEach(s => s.visible = obstacleEnabled);
-  applySpikeMaterial(modeSwitch.checked); // keep spike visuals in sync when switching difficulty
+  applySpikeMaterial(modeSwitch.checked);
   highScoreText.textContent = `Best (${mode}): ${highScores[mode]}`;
 }
 
-// ----------------------------------------------------
-// MODE SWITCH
-// ----------------------------------------------------
 function setVisualMode(full) {
   birdPrimitive.visible = !full;
   birdFull.visible = full;
   activeBird = full ? birdFull : birdPrimitive;
   applySpikeMaterial(full);
   applyCloudVisualMode(full);
+  applyGroundVisualMode(full);
 }
 
-// ----------------------------------------------------
-// GAME LOOP
-// ----------------------------------------------------
 function animate() {
   requestAnimationFrame(animate);
   let dt = clock.getDelta();
@@ -500,13 +580,13 @@ function animate() {
     updateBird(dt);
     spawnBirdTrail();
     updateClouds(dt);
+    updateGround(dt);
 
     for (let i = birdTrail.length - 1; i >= 0; i--) {
       const p = birdTrail[i];
 
       p.position.addScaledVector(p.userData.velocity, dt);
 
-      // Fade out trail sprites as they drift
       p.material.opacity *= 0.92;
 
       if (p.material.opacity < 0.05) {
@@ -531,6 +611,11 @@ function updateBird(dt) {
   if (birdAnchor.position.y > 5) gameOver();
 
   activeBird.rotation.z = -velocity * 0.2;
+
+  if (birdShadow) {
+    birdShadow.position.set(birdAnchor.position.x, 0.01, birdAnchor.position.z);
+    birdShadow.visible = true;
+  }
 }
 
 function updatePipes(dt) {
@@ -593,13 +678,11 @@ function updateSpikes(dt) {
 function updateClouds(dt) {
   let furthestX = -Infinity;
 
-  // Move clouds and track the current furthest one
   for (let cloud of clouds) {
     cloud.position.x -= pipeSpeed * cloud.userData.speedMultiplier * dt;
     furthestX = Math.max(furthestX, cloud.position.x);
   }
 
-  // Recycle clouds just beyond the last one to keep spacing consistent
   for (let cloud of clouds) {
     if (cloud.position.x < CLOUD_RECYCLE_X) {
       const spacing = 1.2 + Math.random() * 1.8;
@@ -611,9 +694,13 @@ function updateClouds(dt) {
   }
 }
 
-// ----------------------------------------------------
-// COLLISION
-// ----------------------------------------------------
+function updateGround(dt) {
+  if (!groundTextureActive) return;
+  const scroll = pipeSpeed * dt * (GROUND_REPEAT / GROUND_SIZE);
+  groundScroll += scroll;
+  groundTextureActive.offset.x = groundScroll;
+}
+
 function checkCollision() {
   let birdBox = new THREE.Box3().setFromObject(birdCollider);
 
@@ -629,9 +716,6 @@ function checkCollision() {
   }
 }
 
-// ----------------------------------------------------
-// CONTROLS
-// ----------------------------------------------------
 function flap() {
   if (!running) return;
   velocity = 4.5;
@@ -693,6 +777,8 @@ function resetGame() {
     );
     clouds[i].userData.speedMultiplier = 0.5 + Math.random() * 0.35;
   }
+  groundScroll = 0;
+  if (groundTextureActive) groundTextureActive.offset.set(0, 0);
   messageText.textContent = "Tap / Space to start";
 }
 
