@@ -9,6 +9,9 @@ let birdPrimitive, birdFull, activeBird;
 let birdCollider; // collision proxy
 let pipes = [];
 let spikes = [];
+let spikePrototypeMaterial;
+let spikeBirdMaterial;
+let scarecrowModel;
 let gravity = -9.8;
 let velocity = 0;
 let pipeSpeed = 2;
@@ -157,6 +160,10 @@ function init() {
   );
   scene.add(birdCollider);
 
+  // Materials
+  spikePrototypeMaterial = new THREE.MeshStandardMaterial({ color: 0xff0000 });
+  loadBirdSpikeMaterial();
+
   // Pipes
   for (let i = 0; i < NUM_PIPES; i++) {
     pipes.push(createPipePair(PIPE_START_X + i * PIPE_SPACING));
@@ -168,6 +175,7 @@ function init() {
     spikes.push(s);
     scene.add(s);
   }
+  applySpikeMaterial(modeSwitch.checked);
 
   // UI events
   difficultySelect.addEventListener("change", e => applyDifficulty(e.target.value));
@@ -277,17 +285,86 @@ function createPipePair(xPos) {
 // SPIKES
 // ----------------------------------------------------
 function createSpike(xPos) {
+  const material =
+    modeSwitch.checked && spikeBirdMaterial
+      ? spikeBirdMaterial
+      : spikePrototypeMaterial;
   let s = new THREE.Mesh(
     new THREE.ConeGeometry(0.25, 0.8, 12),
-    new THREE.MeshStandardMaterial({ color: 0xff0000 })
+    material
   );
   s.position.set(xPos, 1, 0);
   s.userData = {
     baseY: 1,
     speed: 1 + Math.random(),
-    phase: Math.random() * Math.PI * 2
+    phase: Math.random() * Math.PI * 2,
+    visual: null
   };
   return s;
+}
+
+function loadBirdSpikeMaterial() {
+  const loader = new GLTFLoader();
+  loader.load(
+    "./objs/Scarecrow.glb",
+    gltf => {
+      scarecrowModel = gltf.scene;
+      spikeBirdMaterial = new THREE.MeshStandardMaterial({
+        transparent: true,
+        opacity: 0
+      }); // keep collider invisible in full mode; scarecrow provides visuals
+
+      applySpikeMaterial(modeSwitch.checked);
+    },
+    undefined,
+    err => {
+      spikeBirdMaterial = createFallbackBirdMaterial();
+      console.error(
+        "[Spikes] Failed to load Scarecrow GLB; using fallback material",
+        err
+      );
+      applySpikeMaterial(modeSwitch.checked);
+    }
+  );
+}
+
+function createFallbackBirdMaterial() {
+  // Neutral fallback if the GLB fails to load
+  return new THREE.MeshStandardMaterial({
+    color: new THREE.Color(0.6, 0.6, 0.6),
+    roughness: 0.5,
+    metalness: 0.1
+  });
+}
+
+function applySpikeMaterial(fullMode) {
+  const mat =
+    fullMode && spikeBirdMaterial ? spikeBirdMaterial : spikePrototypeMaterial;
+  spikes.forEach(s => {
+    s.material = mat;
+    if (fullMode) {
+      s.material.transparent = true;
+      s.material.opacity = 0;
+      ensureSpikeVisual(s);
+      if (s.userData.visual) s.userData.visual.visible = true;
+    } else {
+      s.material.transparent = false;
+      s.material.opacity = 1;
+      if (s.userData.visual) s.userData.visual.visible = false;
+    }
+  });
+}
+
+function ensureSpikeVisual(spike) {
+  if (!scarecrowModel) return;
+  if (spike.userData.visual) return;
+
+  const visual = scarecrowModel.clone(true);
+  visual.scale.set(0.35, 0.35, 0.35);
+  visual.position.set(0, -0.15, 0);
+  visual.rotation.y = -Math.PI * 0.25; // face toward the bird path
+  spike.add(visual);
+  spike.userData.visual = visual;
 }
 
 // ----------------------------------------------------
@@ -302,6 +379,7 @@ function applyDifficulty(mode) {
   if (mode === "special") { pipeSpeed = 3.5; pipeGap = 1.1; obstacleEnabled = true; }
 
   spikes.forEach(s => s.visible = obstacleEnabled);
+  applySpikeMaterial(modeSwitch.checked); // keep spike visuals in sync when switching difficulty
   highScoreText.textContent = `Best (${mode}): ${highScores[mode]}`;
 }
 
@@ -312,6 +390,7 @@ function setVisualMode(full) {
   birdPrimitive.visible = !full;
   birdFull.visible = full;
   activeBird = full ? birdFull : birdPrimitive;
+  applySpikeMaterial(full);
 }
 
 // ----------------------------------------------------
